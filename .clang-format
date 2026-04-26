@@ -1,0 +1,38 @@
+---
+Language:        Cpp
+BasedOnStyle:    Google
+
+AccessModifierOffset: -2
+AlignAfterOpenBracket: AlwaysBreak
+AlwaysBreakTemplateDeclarations: Yes
+BinPackArguments: false
+BinPackParameters: false
+BreakConstructorInitializers: AfterColon # 
+ColumnLimit:     120
+ConstructorInitializerAllOnOneLineOrOnePerLine: true
+ContinuationIndentWidth: 4
+DerivePointerAlignment: false
+IncludeCategories:
+  - Regex:    '^<.*\.h(pp)?>'
+    Priority: 1
+  - Regex:    '^<.*'
+    Priority: 2
+  - Regex:    '.*'
+    Priority: 3
+IndentCaseLabels: true
+IndentWidth:     2
+KeepEmptyLinesAtTheStartOfBlocks: false
+NamespaceIndentation: None
+ObjCBlockIndentWidth: 2
+PointerAlignment: Left
+ReflowComments:  true
+SortIncludes:    true
+SpaceAfterCStyleCast: true
+Standard:        c++20
+TabWidth:        2
+UseTab:          Never
+QualifierAlignment: Right
+BreakBeforeBraces: Allman
+PointerAlignment: Right
+ReferenceAlignment: Right
+---
