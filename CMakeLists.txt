@@ -30,5 +30,4 @@ target_sources(perf
 
 target_compile_features(perf PUBLIC cxx_std_23)
 
-add_executable(main main.cpp)
-target_link_libraries(main PRIVATE perf)
+add_subdirectory(benchmarks/indirect_access)
