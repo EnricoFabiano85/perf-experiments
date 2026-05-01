@@ -1,0 +1,62 @@
+name: build benchmarks
+
+on:
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Clone repo
+        uses: actions/checkout@v4
+
+      - name: Install Clang and Ninja
+        run: |
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 21
+          sudo apt-get install -y ninja-build clang-format-21 clang-tidy-21 \
+          libc++-21-dev libc++abi-21-dev
+
+      - name: Locate libc++ modules
+        run: |
+          clang++-21 -print-resource-dir
+          clang++-21 -print-search-dirs
+          which clang++-21
+          readlink -f $(which clang++-21)
+      
+      - name: Install cmake 4.3.1
+        run: |
+          wget https://github.com/Kitware/CMake/releases/download/v4.3.1/cmake-4.3.1-linux-x86_64.tar.gz
+          tar -xzf cmake-4.3.1-linux-x86_64.tar.gz
+          sudo cp -r cmake-4.3.1-linux-x86_64/* /usr/local/
+          cmake --version
+
+      - name: Inspect CMake's view of libc++
+        run: |
+          cmake -B build -G Ninja \
+            -DCMAKE_CXX_COMPILER=/usr/lib/llvm-21/bin/clang++ \
+            --debug-find 2>&1 | head -200
+          echo "---"
+          cmake -B build -G Ninja \
+            -DCMAKE_CXX_COMPILER=/usr/lib/llvm-21/bin/clang++ \
+            --trace-expand 2>&1 | grep -i "libc++\|modules" | head -50 || true
+
+
+      # - name: Configure
+      #   run: |
+      #     export CPATH=/usr/lib/llvm-21/include/c++/v1:$CPATH
+      #     export LIBRARY_PATH=/usr/lib/llvm-21/lib:$LIBRARY_PATH
+      #     export LD_LIBRARY_PATH=/usr/lib/llvm-21/lib:$LD_LIBRARY_PATH
+      #     cmake -B build -G Ninja -DCMAKE_CXX_COMPILER=/usr/lib/llvm-21/bin/clang++
+
+      - name: Configure
+        run: cmake -B build -G Ninja -DCMAKE_CXX_COMPILER=/usr/lib/llvm-21/bin/clang++ -DCMAKE_CXX_STDLIB_MODULES_JSON=/usr/lib/llvm-21/lib/libc++.modules.json
+
+      - name: SSH for debugging
+        uses: mxschmitt/action-tmate@v3
+        if: failure()
+      
+      - name: Build
+        run: cmake --build build
