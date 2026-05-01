@@ -1,9 +1,10 @@
-#include <type_traits>
 module;
 
 // #include <immintrin.h>
 #include <sched.h>
 #include <unistd.h>
+
+#include <concepts>
 
 export module perf;
 
@@ -19,51 +20,61 @@ struct NoAssert
 
 struct Stats
 {
-  std::uint64_t const min;
-  double const mean;
-  std::uint64_t const median;
-  double const stdDev;
-  std::uint64_t const p90;
-  std::uint64_t const p99;
-  std::uint64_t const max;
+  std::uint64_t const min_;
+  double const mean_;
+  std::uint64_t const median_;
+  double const stdDev_;
+  std::uint64_t const p90_;
+  std::uint64_t const p99_;
+  std::uint64_t const max_;
 };
 
 [[gnu::always_inline]] void doNotOptimize(auto const &value)
 { asm volatile("" : : "r,m"(value) : "memory"); }
 
-[[gun::always_inline]] 
-auto measure(int nIter, std::invocable auto f, std::invocable auto assertResult = NoAssert{}) -> Stats
+template<std::invocable Kernel, typename AssertResult = NoAssert>
+requires std::invocable<AssertResult, std::invoke_result_t<Kernel>>
+auto measure(std::size_t nIter, Kernel f, AssertResult assertResult = {}) -> Stats
 {
   auto timingResults = std::vector<std::uint64_t>();
   timingResults.reserve(nIter);
 
-  for (int iter = 0; iter != nIter; ++iter)
+  for (auto iter = 0uz; iter != nIter; ++iter)
   {
-    auto const start = std::chrono::high_resolution_clock::now();
+    auto const start = std::chrono::steady_clock::now();
 
     auto value = f();
     doNotOptimize(value);
 
-    auto const end = std::chrono::high_resolution_clock::now();
+    auto const end = std::chrono::steady_clock::now();
     auto const elapsedTime = std::chrono::duration_cast<std::chrono::milliseconds>(end-start).count();
     timingResults.push_back(elapsedTime);
-    
+
     assertResult(value);
   }
 
   std::ranges::sort(timingResults);
-  double const mean = std::accumulate(timingResults.begin(), timingResults.end(), 0.)/nIter;
-  
+
+  auto const n = static_cast<double>(nIter);
+
+  double const mean = std::accumulate(timingResults.begin(), timingResults.end(), 0.)/n;
+    
   double const sqSum = std::accumulate(timingResults.begin(), timingResults.end(), 0., 
       [mean](double acc, double x) { return acc + ((x - mean) * (x - mean)); });
-  double const stdDev = std::sqrt(sqSum / nIter);
+  double const stdDev = std::sqrt(sqSum / n);
 
   auto getPercentile = [&](double p) {
-      std::size_t const idx = static_cast<std::size_t>(std::ceil((p / 100.0) * nIter)) - 1;
-      return timingResults[std::min(idx, std::size_t(nIter) - 1)];
+      std::size_t const idx = static_cast<std::size_t>(std::ceil((p / 100.0) * n)) - 1;
+      return timingResults[std::min(idx, nIter - 1)];
   };
 
-  return {timingResults.front(), mean, getPercentile(50), stdDev, getPercentile(90), getPercentile(99), timingResults.back()};
+  return {.min_=timingResults.front(), 
+    .mean_ = mean, 
+    .median_ = getPercentile(50), 
+    .stdDev_ = stdDev, 
+    .p90_ = getPercentile(90), 
+    .p99_ = getPercentile(99), 
+    .max_ = timingResults.back()};
 }
 
 }
@@ -84,6 +95,6 @@ struct std::formatter<perf::Stats>
       "p90 {}ms\n"
       "p99 {}ms\n"
       "max {}ms\n"
-      "===============================", s.min, s.mean, s.median, s.stdDev, s.p90, s.p99, s.max);
+      "===============================", s.min_, s.mean_, s.median_, s.stdDev_, s.p90_, s.p99_, s.max_);
   }
 };
