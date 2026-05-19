@@ -1,0 +1,31 @@
+name: build benchmarks
+
+on:
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Clone repo
+        uses: actions/checkout@v4
+
+      - name: Build docker
+        run: docker build -t perf-experiments .
+
+      - name: Build in docker
+        run: |
+          docker run --rm \
+          -v "${{ github.workspace }}:/workspace" \
+          -w /workspace \
+          perf-experiments \
+          bash -c 'cmake -B build -G Ninja -DCMAKE_CXX_STDLIB_MODULES_JSON="/usr/lib/llvm-21/lib/libc++.modules.json" && cmake --build build'
+      
+      - name: Run in docker
+        run: |
+          docker run --rm \
+          -v "${{ github.workspace }}:/workspace" \
+          -w /workspace \
+          perf-experiments \
+          bash -c ./build/benchmarks/indirect_access/indirect_access
