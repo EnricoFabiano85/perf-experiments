@@ -29,6 +29,14 @@ struct Stats
   std::uint64_t const max_;
 };
 
+template<typename T>
+concept contiguous_range = std::ranges::contiguous_range<T>;
+
+auto make_flush_regions(contiguous_range auto const &...crs)
+{
+  return std::array{std::as_bytes(std::span{crs}...)};
+}
+
 [[gnu::always_inline]] void doNotOptimize(auto const &value)
 { asm volatile("" : : "r,m"(value) : "memory"); }
 
@@ -65,7 +73,7 @@ auto measure(std::size_t nIter, Kernel f, AssertResult assertResult = {}) -> Sta
     auto const elapsedTime = std::chrono::duration_cast<std::chrono::milliseconds>(end-start).count();
 
     if (iter == 0) continue;
-    
+
     timingResults.push_back(elapsedTime);
 
     assertResult(value);
