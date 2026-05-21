@@ -32,12 +32,27 @@ struct Stats
 [[gnu::always_inline]] void doNotOptimize(auto const &value)
 { asm volatile("" : : "r,m"(value) : "memory"); }
 
+void warmUpCpu(std::chrono::milliseconds warmUpTime = std::chrono::milliseconds{100})
+{
+  auto current_time = std::chrono::steady_clock::now();
+  auto i = 1uz;
+  auto sink = 0uz;
+  while(std::chrono::steady_clock::now() - current_time < warmUpTime)
+  {
+    sink += i*i;
+    ++i;
+  }
+
+  doNotOptimize(sink);
+}
+
 template<std::invocable Kernel, typename AssertResult = NoAssert>
 requires std::invocable<AssertResult, std::invoke_result_t<Kernel>>
 auto measure(std::size_t nIter, Kernel f, AssertResult assertResult = {}) -> Stats
 {
   auto timingResults = std::vector<std::uint64_t>();
   timingResults.reserve(nIter);
+  ++nIter;
 
   for (auto iter = 0uz; iter != nIter; ++iter)
   {
@@ -48,6 +63,9 @@ auto measure(std::size_t nIter, Kernel f, AssertResult assertResult = {}) -> Sta
 
     auto const end = std::chrono::steady_clock::now();
     auto const elapsedTime = std::chrono::duration_cast<std::chrono::milliseconds>(end-start).count();
+
+    if (iter == 0) continue;
+    
     timingResults.push_back(elapsedTime);
 
     assertResult(value);
