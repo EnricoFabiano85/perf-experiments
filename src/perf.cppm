@@ -96,7 +96,7 @@ auto measure(std::size_t nIter, Kernel f, AssertResult assertResult = {}, FlushR
 
   std::ranges::sort(timingResults);
 
-  auto const n = static_cast<double>(nIter);
+  auto const n = static_cast<double>(nIter-1);
 
   double const mean = std::accumulate(timingResults.begin(), timingResults.end(), 0.)/n;
     
