@@ -1,6 +1,6 @@
 module;
 
-// #include <immintrin.h>
+#include <immintrin.h>
 #include <sched.h>
 #include <unistd.h>
 
@@ -29,12 +29,26 @@ struct Stats
   std::uint64_t const max_;
 };
 
+enum class CachePolicy : char {Cold, Warm};
+
 template<typename T>
 concept contiguous_range = std::ranges::contiguous_range<T>;
 
-auto make_flush_regions(contiguous_range auto const &...crs)
+using FlushRegions = std::span<std::span<std::byte const> const>;
+
+auto makeFlushRegions(contiguous_range auto const &...crs)
+{ return std::array{std::as_bytes(std::span{crs})...}; }
+
+void flushRegions(FlushRegions regions)
 {
-  return std::array{std::as_bytes(std::span{crs}...)};
+  if (regions.empty()) 
+    std::println(std::cerr, "Warning: using Cold cache policy but no regions to flush");
+
+  _mm_mfence();
+  
+  for (auto &r : regions) _mm_clflushopt(r.data());
+
+  _mm_mfence();
 }
 
 [[gnu::always_inline]] void doNotOptimize(auto const &value)
@@ -54,9 +68,8 @@ void warmUpCpu(std::chrono::milliseconds warmUpTime = std::chrono::milliseconds{
   doNotOptimize(sink);
 }
 
-template<std::invocable Kernel, typename AssertResult = NoAssert>
-requires std::invocable<AssertResult, std::invoke_result_t<Kernel>>
-auto measure(std::size_t nIter, Kernel f, AssertResult assertResult = {}) -> Stats
+template<CachePolicy Policy = CachePolicy::Warm, std::invocable Kernel, typename AssertResult = NoAssert>
+auto measure(std::size_t nIter, Kernel f, AssertResult assertResult = {}, FlushRegions regions = {}) -> Stats
 {
   auto timingResults = std::vector<std::uint64_t>();
   timingResults.reserve(nIter);
@@ -77,6 +90,8 @@ auto measure(std::size_t nIter, Kernel f, AssertResult assertResult = {}) -> Sta
     timingResults.push_back(elapsedTime);
 
     assertResult(value);
+
+    if constexpr (Policy == CachePolicy::Cold) flushRegions(regions);
   }
 
   std::ranges::sort(timingResults);
