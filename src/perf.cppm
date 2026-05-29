@@ -44,9 +44,18 @@ void flushRegions(FlushRegions regions)
   if (regions.empty()) 
     std::println(std::cerr, "Warning: using Cold cache policy but no regions to flush");
 
+  auto constexpr cacheLineSize = 64ul;
+
   _mm_mfence();
   
-  for (auto &r : regions) _mm_clflushopt(r.data());
+  for (auto &r : regions) 
+  {
+    for (auto i = 0ul; i < r.size(); i += cacheLineSize)
+      _mm_clflushopt(r.data()+i);
+
+    if (!r.empty())
+      _mm_clflushopt(r.data() + r.size() - 1);
+  }
 
   _mm_mfence();
 }
