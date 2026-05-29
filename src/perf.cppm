@@ -1,6 +1,6 @@
 module;
 
-// #include <immintrin.h>
+#include <immintrin.h>
 #include <sched.h>
 #include <unistd.h>
 
@@ -29,15 +29,60 @@ struct Stats
   std::uint64_t const max_;
 };
 
+enum class CachePolicy : char {Cold, Warm};
+
+template<typename T>
+concept contiguous_range = std::ranges::contiguous_range<T>;
+
+using FlushRegions = std::span<std::span<std::byte const> const>;
+
+auto makeFlushRegions(contiguous_range auto const &...crs)
+{ return std::array{std::as_bytes(std::span{crs})...}; }
+
+void flushRegions(FlushRegions regions)
+{
+  if (regions.empty()) 
+    std::println(std::cerr, "Warning: using Cold cache policy but no regions to flush");
+
+  auto constexpr cacheLineSize = 64ul;
+
+  _mm_mfence();
+  
+  for (auto &r : regions) 
+  {
+    for (auto i = 0ul; i < r.size(); i += cacheLineSize)
+      _mm_clflushopt(r.data()+i);
+
+    if (!r.empty())
+      _mm_clflushopt(r.data() + r.size() - 1);
+  }
+
+  _mm_mfence();
+}
+
 [[gnu::always_inline]] void doNotOptimize(auto const &value)
 { asm volatile("" : : "r,m"(value) : "memory"); }
 
-template<std::invocable Kernel, typename AssertResult = NoAssert>
-requires std::invocable<AssertResult, std::invoke_result_t<Kernel>>
-auto measure(std::size_t nIter, Kernel f, AssertResult assertResult = {}) -> Stats
+void warmUpCpu(std::chrono::milliseconds warmUpTime = std::chrono::milliseconds{100})
+{
+  auto current_time = std::chrono::steady_clock::now();
+  auto i = 1uz;
+  auto sink = 0uz;
+  while(std::chrono::steady_clock::now() - current_time < warmUpTime)
+  {
+    sink += i*i;
+    ++i;
+  }
+
+  doNotOptimize(sink);
+}
+
+template<CachePolicy Policy = CachePolicy::Warm, std::invocable Kernel, typename AssertResult = NoAssert>
+auto measure(std::size_t nIter, Kernel f, AssertResult assertResult = {}, FlushRegions regions = {}) -> Stats
 {
   auto timingResults = std::vector<std::uint64_t>();
   timingResults.reserve(nIter);
+  ++nIter;
 
   for (auto iter = 0uz; iter != nIter; ++iter)
   {
@@ -48,14 +93,19 @@ auto measure(std::size_t nIter, Kernel f, AssertResult assertResult = {}) -> Sta
 
     auto const end = std::chrono::steady_clock::now();
     auto const elapsedTime = std::chrono::duration_cast<std::chrono::milliseconds>(end-start).count();
+
+    if (iter == 0) continue;
+
     timingResults.push_back(elapsedTime);
 
     assertResult(value);
+
+    if constexpr (Policy == CachePolicy::Cold) flushRegions(regions);
   }
 
   std::ranges::sort(timingResults);
 
-  auto const n = static_cast<double>(nIter);
+  auto const n = static_cast<double>(nIter-1);
 
   double const mean = std::accumulate(timingResults.begin(), timingResults.end(), 0.)/n;
     
