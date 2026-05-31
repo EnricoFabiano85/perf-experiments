@@ -25,7 +25,7 @@ int main()
 
     auto regionsToFlush = perf::makeFlushRegions(data);
 
-    auto const s = perf::measure<perf::CachePolicy::Warm>(nIter, [&]{
+    auto const s = perf::measure<perf::CachePolicy::Cold>(nIter, [&]{
       decltype(data)::value_type sum = 0;
       for (auto const &e : data) sum += e;
       return sum;
@@ -42,7 +42,7 @@ int main()
 
     auto const regionsToFlush = perf::makeFlushRegions(data, indices);
 
-    auto const s = perf::measure<perf::CachePolicy::Warm>(nIter, [&]{
+    auto const s = perf::measure<perf::CachePolicy::Cold>(nIter, [&]{
       decltype(data)::value_type sum = 0;
       for (std::size_t idx = 0; idx != vectorSize; ++idx) sum += data[indices[idx]];
       return sum;
@@ -59,7 +59,7 @@ int main()
 
     auto const regionsToFlush = perf::makeFlushRegions(data, indices);
 
-    auto const s = perf::measure<perf::CachePolicy::Warm>(nIter, [&]{
+    auto const s = perf::measure<perf::CachePolicy::Cold>(nIter, [&]{
       decltype(data)::value_type sum = 0;
       for (std::size_t idx = 0; idx != vectorSize; ++idx) sum += data[indices[idx]];
       return sum;
@@ -83,7 +83,7 @@ int main()
     
       auto const regionsToFlush = perf::makeFlushRegions(data, paddedIndices);
 
-      auto const s = perf::measure<perf::CachePolicy::Warm>(nIter, [&](){
+      auto const s = perf::measure<perf::CachePolicy::Cold>(nIter, [&](){
         decltype(data)::value_type sum = 0;
         
         for (auto i = 0; i != vectorSize; ++i) 
@@ -146,7 +146,7 @@ int main()
         std::size_t i = 0;
         for (; i + lanes <= vectorSize; i+=lanes)
         {
-          __builtin_prefetch(data.data()+paddedIndices[i]+prefetchDistance);
+          __builtin_prefetch(data.data()+paddedIndices[i+prefetchDistance]);
 
           auto const localIndices = _mm512_loadu_si512((__m512i*)&paddedIndices[i]);
           auto const vals = _mm512_i32gather_epi32(localIndices, data.data(), sizeof(DataType));
