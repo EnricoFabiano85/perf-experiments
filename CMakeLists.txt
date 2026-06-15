@@ -31,3 +31,4 @@ target_sources(perf
 target_compile_features(perf PUBLIC cxx_std_23)
 
 add_subdirectory(benchmarks/indirect_access)
+add_subdirectory(benchmarks/strided_access)
