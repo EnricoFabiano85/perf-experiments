@@ -110,11 +110,12 @@ with 64 bytes cache line (getconf LEVEL1_DCACHE_LINESIZE).
 The code is compiled with optimization level 3 (O3) and with -march=native in order to enable AVX512 
 instructions.
 All the kernels are run by pinning to a thread (taskset -c 2 ./strided_access) in performance mode.
+Unless otherwise specified, the grid size is Nx=Ny=Nz=1024.
 
 
 ### X sweep
 The asm code for the two loop ordering for the X sweep shows that in both cases the compiler 
-emits identically AVX512 instructions for the inner loop.
+emits identical AVX512 instructions for the inner loop.
 <table>
 <tr>
 <th>X sweep -- k-j-i</th>
@@ -170,34 +171,15 @@ emits identically AVX512 instructions for the inner loop.
 </tr>
 </table>
 However, the memory traffic between the two loops differs slightly
-<table>
-<tr>
-<th>X sweep -- k-j-i</th>
-<th>X sweep -- j-k-i</th>
-</tr>
-<tr>
-<td>
 
-	399,592         dTLB-load-misses #    0.00% of all dTLB cache accesses
-	18,950,758,693  dTLB-loads                                                            
-	894,625,588     L1-dcache-load-misses                                                 
-	20,713,683      LLC-load-misses                                                       
-	30,664,984,729  cycles                                                                
-	45,455,903,777  instructions #    1.48  insn per cycle
-
-</td>
-<td>
-
-	11,673,345      dTLB-load-misses #    0.06% of all dTLB cache accesses
-	18,747,154,607  dTLB-loads                                                            
-	910,704,600     L1-dcache-load-misses                                                 
-	34,705,636      LLC-load-misses                                                       
-	31,079,451,614  cycles                                                                
-	44,575,022,015  instructions #    1.43  insn per cycle 
-
-</td>
-</tr>
-</table>
+| Counter | k-j-i | j-k-i |
+| --- | ---: | ---: |
+| cycles | 30,664,984,729 | 31,079,451,614 |
+| instructions (IPC) | 45,455,903,777 (1.48) | 44,575,022,015 (1.43) |
+| dTLB-load-misses | 399,592 (0.00%) | 11,673,345 (0.06%) |
+| dTLB-loads | 18,950,758,693 | 18,747,154,607 |
+| L1-dcache-load-misses | 894,625,588 | 910,704,600 |
+| LLC-load-misses | 20,713,683 | 34,705,636 |
 
 The k-j-i loop has fewer TLB load misses and L1 cache misses so that the CPU can issue slightly more
 instructions per cycle compared to the j-k-i loop. Practically, this means that the k-j-i loop is
@@ -205,15 +187,19 @@ approximately 25ms faster than the j-k-i with a 1% standard deviation in both ca
 
 ### Y sweep
 
+The loop orderings for the Y sweep can be split into two families by their innermost loop. When the 4 KB-stride
+sweep direction `j` is innermost the compiler emits slow gather instructions. On the other hand, the compiler 
+emits contiguous AVX-512 loads when the unit-stride `i` loop is innermost. The asm code for the fastest kernel
+of each family is shown in the table below.
+
 <table>
 <tr>
 <th>Y sweep -- k-i-j</th>
-<th>Y sweep -- j-k-i</th>
+<th>Y sweep -- k-j-i</th>
 </tr>
 <tr>
 <td>
 
-	#   Parent Loop BB0_17 Depth=1
 	# =>  This Loop Header: Depth=2
 	#       Child Loop BB0_19 Depth 3
 	#         Child Loop BB0_20 Depth 4
@@ -235,7 +221,6 @@ approximately 25ms faster than the j-k-i with a 1% standard deviation in both ca
 
 		...
 
-	#   Parent Loop BB0_17 Depth=1
 	#     Parent Loop BB0_18 Depth=2
 	# =>    This Loop Header: Depth=3
 	#         Child Loop BB0_20 Depth 4
@@ -250,7 +235,6 @@ approximately 25ms faster than the j-k-i with a 1% standard deviation in both ca
 
 		...
 
-	#   Parent Loop BB0_17 Depth=1
 	#     Parent Loop BB0_18 Depth=2
 	#       Parent Loop BB0_19 Depth=3
 	# =>      This Inner Loop Header: Depth=4
@@ -263,41 +247,157 @@ approximately 25ms faster than the j-k-i with a 1% standard deviation in both ca
     vpsllq    $12, %ymm28, %ymm28
     vpsllq    $12, %ymm1, %ymm1
 	.Ltmp219:
-	.loc    1 166 20                        # benchmarks/strided_access/main.cpp:166:20 
-	kxnorw    %k0, %k0, %k1
-	vpxord    %xmm29, %xmm29, %xmm29
-	vpgatherqd    (%rcx,%ymm1), %xmm29 {%k1}
-	kxnorw    %k0, %k0, %k1
-	vpxor    %xmm1, %xmm1, %xmm1
-	vpsllq	$10, %ymm8, %ymm3
-	vpbroadcastq	%rax, %ymm4
+	.loc	1 166 20                        # benchmarks/strided_access/main.cpp:166:20 
+	kxnorw	%k0, %k0, %k1
+	vpxord	%xmm29, %xmm29, %xmm29
+	vpgatherqd	(%rcx,%ymm1), %xmm29 {%k1}
+	kxnorw	%k0, %k0, %k1
+	vpxor	%xmm1, %xmm1, %xmm1
+	vpgatherqd	(%rcx,%ymm28), %xmm1 {%k1}
 
 </td>
 <td>
 
-	vmovdqu	-100(%rdx,%r8,4), %ymm5
-	vmovdqu	-68(%rdx,%r8,4), %ymm6
-	vmovdqu	-36(%rdx,%r8,4), %ymm7
-	valignd	$7, %ymm0, %ymm5, %ymm8         # ymm8 = ymm0[7],ymm5[0,1,2,3,4,5,6]
-	vmovdqu	-4(%rdx,%r8,4), %ymm0
-	.loc	1 146 38 is_stmt 0              # benchmarks/strided_access/main.cpp:146:38 
-	vpaddd	%ymm1, %ymm8, %ymm1
-	valignd	$7, %ymm5, %ymm6, %ymm8         # ymm8 = ymm5[7],ymm6[0,1,2,3,4,5,6]
-	vpaddd	%ymm2, %ymm8, %ymm2
-	valignd	$7, %ymm6, %ymm7, %ymm8         # ymm8 = ymm6[7],ymm7[0,1,2,3,4,5,6]
-	vpaddd	%ymm3, %ymm8, %ymm3
-	valignd	$7, %ymm7, %ymm0, %ymm8         # ymm8 = ymm7[7],ymm0[0,1,2,3,4,5,6]
-	vpaddd	%ymm4, %ymm8, %ymm4
-	.loc	1 146 58                        # benchmarks/strided_access/main.cpp:146:58 
-	vpaddd	-112(%rdx,%r8,4), %ymm1, %ymm1
-	vpaddd	-80(%rdx,%r8,4), %ymm2, %ymm2
-	vpaddd	-48(%rdx,%r8,4), %ymm3, %ymm3
-	vpaddd	-16(%rdx,%r8,4), %ymm4, %ymm4
+	# =>  This Loop Header: Depth=2
+	#       Child Loop BB0_130 Depth 3
+	#         Child Loop BB0_131 Depth 4
+	movq	%rbx, %rcx
+	shlq	$10, %rcx
+	movabsq	$4503599627370494, %rax         # imm = 0xFFFFFFFFFFFFE
+	.Ltmp707:
+	.loc	1 224 9 is_stmt 1               # benchmarks/strided_access/main.cpp:224
+	leaq	(%rcx,%rax), %rdx
+	...
+	movq	%r9, 112(%rsp)                  # 8-byte Spill
+	movl	$2, %r10d
+	.Ltmp708:
+	.loc	1 0 9 is_stmt 0                 # :0:9
+	.Ltmp709:
+	.p2align	4
+	.LBB0_130:                              # %iter.check850
+
+	#     Parent Loop BB0_129 Depth=2
+	# =>    This Loop Header: Depth=3
+	#         Child Loop BB0_131 Depth 4
+	leaq	(%rdx,%r10), %r11
+	shlq	$12, %r11
+	...
+	vmovd	%ebp, %xmm0
+	vxorpd	%xmm1, %xmm1, %xmm1
+	movq	$-992, %rbp                     # imm = 0xFC20
+	.Ltmp710:
+	vpxor	%xmm2, %xmm2, %xmm2
+	vpxor	%xmm3, %xmm3, %xmm3
+	.Ltmp711:
+	.p2align	4
+	.LBB0_131:                              # %vector.body853
+	#     Parent Loop BB0_129 Depth=2
+	#       Parent Loop BB0_130 Depth=3
+	# =>      This Inner Loop Header: Depth=4
+		.loc	1 226 38 is_stmt 1              # benchmarks/strided_access/main.cpp:226
+	vpaddd	-12512(%r9,%rbp,4), %ymm0, %ymm0   # j-2
+	vpaddd	-12480(%r9,%rbp,4), %ymm1, %ymm1
+	vpaddd	-12448(%r9,%rbp,4), %ymm2, %ymm2
+	vpaddd	-12416(%r9,%rbp,4), %ymm3, %ymm3
+	.loc	1 226 58 is_stmt 0              # benchmarks/strided_access/main.cpp:226
+	vpaddd	-8416(%r9,%rbp,4), %ymm0, %ymm0    # j-1
+
 	...
 
+	.loc	1 226 74                        # benchmarks/strided_access/main.cpp:226
+	vpaddd	-4320(%r9,%rbp,4), %ymm0, %ymm0    # j
+	
+	...
+
+	.loc	1 226 94                        # benchmarks/strided_access/main.cpp:226
+	vpaddd	-224(%r9,%rbp,4), %ymm0, %ymm0     # j+1
+	
+	...
+
+	.loc	1 226 17                        # benchmarks/strided_access/main.cpp:226 
+	vpaddd	3872(%r9,%rbp,4), %ymm0, %ymm0     # j+2
+	...
+
+	jne	.LBB0_131
+	.Ltmp712:
+	# %bb.132:                              # %vec.epilog.vector.body889
+                                        #   in Loop: Header=BB0_130 Depth=3
+	.loc	1 225 11 is_stmt 1              # benchmarks/strided_access/main.cpp:225:11 
+	vpaddd	%ymm0, %ymm1, %ymm0
+	vpaddd	%ymm2, %ymm3, %ymm1
+	vpaddd	%ymm0, %ymm1, %ymm0
+
+	...
+	
 </td>
 </tr>
 </table>
+
+Focusing on the innermost loop, the `k-i-j` loop ordering gathers values Nx elements apart
+```C++
+vmovdqa64    .LCPI0_25(%rip), %ymm22 # ymm22 = [6,7,8,9] //4 consecutive elements
+...
+vpaddq    %ymm22, %ymm0, %ymm1 // add base elements ymm0 and store in ymm1
+...
+vpsllq    $12, %ymm1, %ymm1 // <<12 bits = ×4096 B = Nx·4
+...
+vpgatherqd	(%rcx,%ymm1), %xmm29 {%k1} //gather
+```
+On the other hand the `k-j-i` loop ordering tracks 5 sequential memory streams (one for each point in the WENO 
+scheme) 4 KB apart. Within each stream memory access is contiguous and the compiler emits 4 `vpaddd` instructions
+(the 4 unrolled accumulators) to perform the vectorized accumulation along the `i` direction within each stream.
+
+```C++
+vpaddd	-12512(%r9,%rbp,4), %ymm0, %ymm0   // j-2
+...
+vpaddd	-8416(%r9,%rbp,4), %ymm0, %ymm0    // j-1
+...
+vpaddd	-4320(%r9,%rbp,4), %ymm0, %ymm0    // j
+...
+vpaddd	-224(%r9,%rbp,4), %ymm0, %ymm0     // j+1
+...
+vpaddd	3872(%r9,%rbp,4), %ymm0, %ymm0     // j+2
+```
+
+While not shown, the other loop ordering in each family has the same asm for the inner loop, but suffers 
+from worse memory access/reuse. This results in wildly different performance between the two loops in each family
+as reported in the performance counters below (`perf stat -e dTLB-load-misses,dTLB-loads,L1-dcache-load-misses,LLC-load-misses,cycles,instructions,task-clock`)
+
+**Gather-inner family** (`j` innermost, `vpgatherqd`):
+
+| Counter | k-i-j | i-k-j |
+| --- | ---: | ---: |
+| cycles (freq) | 172,012,058,044 (4.374 GHz) | 501,273,609,157 (4.376 GHz) |
+| instructions (IPC) | 123,333,741,332 (0.72) | 124,138,131,747 (0.25) |
+| dTLB-load-misses | 12,858,880 (0.05%) | 11,754,400,991 (42.64%) |
+| dTLB-loads | 27,407,508,640 | 27,563,748,055 |
+| L1-dcache-load-misses | 15,173,488,707 | 13,784,347,535 |
+| LLC-load-misses | 838,097,720 | 11,493,452,229 |
+
+As mentioned, the inner-loop asm of these two kernels is identical (20 vpgatherqd/kxnorw each). The outer
+loops differ slightly with some register spilling in one case, so that the instructions per cycle differ by 
+approximately 0.6%. However, while the `k-i-j` has only 0.06% page misses, the `i-k-j` loop has ~43% page misses
+because of the 4MB-stride `k` loop, so that the latter kernel has significantly degraded performance (~3x)
+despite slightly better L1 cache misses.
+
+**Contiguous-inner family** (unit-stride `i` innermost, `vmovdqu` loads):
+
+| Counter | k-j-i | j-k-i |
+| --- | ---: | ---: |
+| cycles | 27,496,173,884 (4.374 GHz) | 64,452,829,950 (4.371 GHz) |
+| instructions (IPC) | 39,645,899,892 (1.44) | 39,745,631,986 (0.62) |
+| dTLB-load-misses | 224,210 (0.00%) | 58,082,297 (0.29%) |
+| dTLB-loads | 20,098,557,124 | 20,126,463,341 |
+| L1-dcache-load-misses | 883,698,724 | 3,845,591,375 |
+| LLC-load-misses | 244,216,927 | 735,729,570 |
+
+Once again, the inner-most loops of these two kernels have identical instructions (20 vpadds each),
+but the `j-k-i` loop has worse memory reuse compared to the `k-j-i` loop, as confirmed by both L1 
+and page misses. The `k-j-i` kernel at every j iteration *drops* one memory stream but reuses the other 4 because
+at this grid size and on this CPU the streams can remain in L1/L2 cache.
+The `j-k-i` kernel has the same asm for the innermost loop, so the 5 memory streams are still separated by 4*Nx bytes,
+but k is the second innermost loop, so that at every k iteration each memory stream needs to jump `Nx*Ny*4` bytes
+away (`shlq $10, %r10`) resulting in little to none cache reuse.
 
 
 ### Conclusions
