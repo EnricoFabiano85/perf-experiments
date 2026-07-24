@@ -174,12 +174,12 @@ However, the memory traffic between the two loops differs slightly
 
 | Counter | k-j-i | j-k-i |
 | --- | ---: | ---: |
-| cycles | 30,664,984,729 | 31,079,451,614 |
-| instructions (IPC) | 45,455,903,777 (1.48) | 44,575,022,015 (1.43) |
-| dTLB-load-misses | 399,592 (0.00%) | 11,673,345 (0.06%) |
-| dTLB-loads | 18,950,758,693 | 18,747,154,607 |
-| L1-dcache-load-misses | 894,625,588 | 910,704,600 |
-| LLC-load-misses | 20,713,683 | 34,705,636 |
+| cycles | 29,537,541,360 (4.369 GHz) | 30,815,296,689 (4.372 GHz) |
+| instructions (IPC) | 44,361,028,708 (1.50) | 44,320,020,463 (1.44) |
+| dTLB-load-misses | 172,916 (0.00%) | 11,541,512 (0.06%) |
+| dTLB-loads | 18,685,482,078 | 18,676,928,906 |
+| L1-dcache-load-misses | 880,658,325 | 906,048,356 |
+| LLC-load-misses | 19,360,651 | 36,683,612 |
 
 The k-j-i loop has fewer TLB load misses and L1 cache misses so that the CPU can issue slightly more
 instructions per cycle compared to the j-k-i loop. Practically, this means that the k-j-i loop is
@@ -399,5 +399,22 @@ The `j-k-i` kernel has the same asm for the innermost loop, so the 5 memory stre
 but k is the second innermost loop, so that at every k iteration each memory stream needs to jump `Nx*Ny*4` bytes
 away (`shlq $10, %r10`) resulting in little to none cache reuse.
 
+**X-sweep/Y-sweep k-j-i kernel comparison**
+Here we compare the performance of the `k-j-i` kernel for both the X and the Y sweep. Regardless of the resolution
+the `k-j-i` kernel for the X-sweep is expected to be the fastest kernel, however measurements show that 
+the same kernel for the Y-sweep is actually faster by about 12% (~15 standard deviations). 
+
+| Counter | X-sweep | Y-sweep |
+| --- | ---: | ---: |
+| cycles | 29,537,541,360 (4.369 GHz) | 27,496,173,884 (4.374 GHz) |
+| instructions (IPC) | 44,361,028,708 (1.50) | 39,645,899,892 (1.44) |
+| LLC-load-misses | 19,360,651 | 244,216,927 |
+
+Despite having worse memory reuse (LLC-load misses), the Y-sweep is faster than the X-sweep because of 
+the smaller number of instructions issued (~5B). This happens because in the X-sweep the compiler
+emits a `valignd	$7, %ymm0, %ymm5, %ymm8` (concatenate+shift ymm0 and ymm5 and write into ymm8) 
+to build the consecutive SIMD vectors `i-2`, `i-1` ... `i+2`
+in the WENO stencil. On the other hand, in the Y-sweep the compiler tracks 5 independent memory streams and sums along
+these memory streams without any `valignd`.
 
 ### Conclusions
