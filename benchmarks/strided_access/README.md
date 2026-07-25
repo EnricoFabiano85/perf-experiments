@@ -344,7 +344,7 @@ vpsllq    $12, %ymm1, %ymm1 // <<12 bits = ×4096 B = Nx·4
 vpgatherqd	(%rcx,%ymm1), %xmm29 {%k1} //gather
 ```
 On the other hand the `k-j-i` loop ordering tracks 5 sequential memory streams (one for each point in the WENO 
-scheme) 4 KB apart. Within each stream memory access is contiguous and the compiler emits 4 `vpaddd` instructions
+scheme) 4 KB apart. Within each stream, memory access is contiguous and the compiler emits 4 `vpaddd` instructions
 (the 4 unrolled accumulators) to perform the vectorized accumulation along the `i` direction within each stream.
 
 ```C++
@@ -397,7 +397,7 @@ and page misses. The `k-j-i` kernel at every j iteration *drops* one memory stre
 at this grid size and on this CPU the streams can remain in L1/L2 cache.
 The `j-k-i` kernel has the same asm for the innermost loop, so the 5 memory streams are still separated by 4*Nx bytes,
 but k is the second innermost loop, so that at every k iteration each memory stream needs to jump `Nx*Ny*4` bytes
-away (`shlq $10, %r10`) resulting in little to none cache reuse.
+away resulting in little to none cache reuse.
 
 **X-sweep/Y-sweep k-j-i kernel comparison**
 Here we compare the performance of the `k-j-i` kernel for both the X and the Y sweep. Regardless of the resolution
@@ -416,5 +416,329 @@ emits a `valignd	$7, %ymm0, %ymm5, %ymm8` (concatenate+shift ymm0 and ymm5 and w
 to build the consecutive SIMD vectors `i-2`, `i-1` ... `i+2`
 in the WENO stencil. On the other hand, in the Y-sweep the compiler tracks 5 independent memory streams and sums along
 these memory streams without any `valignd`.
+
+### Z sweep
+For the Z sweep we considered only two loop orderings, `j-i-k` and `j-k-i`. The asm for these two kernels is listed
+in the table below
+
+<table>
+<tr>
+<th>Z sweep -- j-i-k</th>
+<th>Z sweep -- j-k-i</th>
+</tr>
+<tr>
+<td>
+
+	# =>  This Loop Header: Depth=2
+	#       Child Loop BB0_19 Depth 3
+	#         Child Loop BB0_20 Depth 4
+	movq	%r14, %rax
+	shlq	$12, %rax
+	movl	$2, %ecx
+	.Ltmp185:
+	.p2align	4
+	.LBB0_19:                               # %iter.check
+	#     Parent Loop BB0_18 Depth=2
+	# =>    This Loop Header: Depth=3
+	#         Child Loop BB0_20 Depth 4
+	.loc	1 245 11 is_stmt 1              # benchmarks/strided_access/main.cpp:245:11
+	leaq	(%r15,%rcx,4), %rdx
+	addq	%rax, %rdx
+	vmovd	%ebx, %xmm2
+	vpxor	%xmm3, %xmm3, %xmm3
+	movl	$1008, %esi                     # imm = 0x3F0
+	vmovdqa	.LCPI0_18(%rip), %ymm0          # ymm0 = [2,3,4,5]
+	vmovdqa	.LCPI0_17(%rip), %ymm1          # ymm1 = [6,7,8,9]
+	vpbroadcastq	.LCPI0_19(%rip), %ymm17 # ymm17 = [16,16,16,16]
+
+	...
+
+	#     Parent Loop BB0_18 Depth=2
+	#       Parent Loop BB0_19 Depth=3
+	# =>      This Inner Loop Header: Depth=4
+	vpsllq	$22, %ymm0, %ymm4
+	vpsllq	$22, %ymm1, %ymm5
+	kxnorw	%k0, %k0, %k1
+	vpxor	%xmm6, %xmm6, %xmm6
+	vpgatherqd	-8388608(%rdx,%ymm5), %xmm6 {%k1}
+
+	...
+
+	kxnorw	%k0, %k0, %k1
+	vpxor	%xmm8, %xmm8, %xmm8
+	vpgatherqd	25165824(%rdx,%ymm5), %xmm8 {%k1}
+
+	...
+
+	
+	vpaddd	%ymm4, %ymm6, %ymm4
+	vpaddd	%ymm4, %ymm3, %ymm3
+	vpaddq	%ymm17, %ymm0, %ymm0
+	vpaddq	%ymm17, %ymm1, %ymm1
+	addq	$-16, %rsi
+
+	...
+
+</td>
+<td>
+
+	# =>  This Loop Header: Depth=2
+	#       Child Loop BB0_57 Depth 3
+	#         Child Loop BB0_58 Depth 4
+	movq	%rbx, %rcx
+	shlq	$12, %rcx
+	.Ltmp324:
+	.loc	1 264 9 is_stmt 1               # benchmarks/strided_access/main.cpp:264:9 
+	addq	%r15, %rcx
+	movq	%rax, %rdx
+	movl	$2, %esi
+	.Ltmp325:
+	.loc	1 0 9 is_stmt 0                 # :0:9
+	.Ltmp326:
+	.p2align	4
+	.LBB0_57:
+	#     Parent Loop BB0_56 Depth=2
+	# =>    This Loop Header: Depth=3
+	#         Child Loop BB0_58 Depth 4
+	movq	%rsi, %rdi
+	shlq	$22, %rdi
+	incq	%rsi
+	.Ltmp327:
+	movq	%rsi, %r8
+	shlq	$22, %r8
+	vmovd	%r14d, %xmm0
+	vpxor	%xmm1, %xmm1, %xmm1
+	xorl	%r9d, %r9d
+	vpxor	%xmm2, %xmm2, %xmm2
+	vpxor	%xmm3, %xmm3, %xmm3
+	.Ltmp328:
+	.p2align	4
+	.LBB0_58:  
+	#     Parent Loop BB0_56 Depth=2
+	#       Parent Loop BB0_57 Depth=3
+	# =>      This Inner Loop Header: Depth=4
+
+	.loc	1 266 38 is_stmt 1              # benchmarks/strided_access/main.cpp:266:38
+	vpaddd	-16777312(%rdx,%r9,4), %ymm0, %ymm0
+	vpaddd	-16777280(%rdx,%r9,4), %ymm1, %ymm1			# k-2
+	vpaddd	-16777248(%rdx,%r9,4), %ymm2, %ymm2
+	vpaddd	-16777216(%rdx,%r9,4), %ymm3, %ymm3
+	.loc	1 266 58 is_stmt 0              
+	vpaddd	-12583008(%rdx,%r9,4), %ymm0, %ymm0
+	vpaddd	-12582976(%rdx,%r9,4), %ymm1, %ymm1			# k-1
+	vpaddd	-12582944(%rdx,%r9,4), %ymm2, %ymm2
+	vpaddd	-12582912(%rdx,%r9,4), %ymm3, %ymm3
+	.loc	1 266 74                       
+	vpaddd	-8388704(%rdx,%r9,4), %ymm0, %ymm0
+	vpaddd	-8388672(%rdx,%r9,4), %ymm1, %ymm1			# k
+	vpaddd	-8388640(%rdx,%r9,4), %ymm2, %ymm2
+	vpaddd	-8388608(%rdx,%r9,4), %ymm3, %ymm3
+	.loc	1 266 94                        
+	vpaddd	-4194400(%rdx,%r9,4), %ymm0, %ymm0
+	vpaddd	-4194368(%rdx,%r9,4), %ymm1, %ymm1			# k+1
+	vpaddd	-4194336(%rdx,%r9,4), %ymm2, %ymm2
+	vpaddd	-4194304(%rdx,%r9,4), %ymm3, %ymm3
+	.loc	1 266 17                       
+	vpaddd	-96(%rdx,%r9,4), %ymm0, %ymm0
+	vpaddd	-64(%rdx,%r9,4), %ymm1, %ymm1			# k+2
+	vpaddd	-32(%rdx,%r9,4), %ymm2, %ymm2
+	vpaddd	(%rdx,%r9,4), %ymm3, %ymm3
+	addq	$32, %r9
+	cmpq	$992, %r9                       # imm = 0x3E0
+	jne	.LBB0_58
+	
+</td>
+</tr>
+</table>
+
+Similar to the asm for the Y sweep, for the `j-i-k` kernel the compiler emits slow `vpgatherqd` instructions.
+On the other hand the `j-k-i` loop ordering tracks 5 sequential memory streams (one for each point in the WENO 
+scheme in the Z direction) 4MB apart. 
+Within each stream, memory access is contiguous and the compiler emits 4 `vpaddd` instructions
+(the 4 unrolled accumulators) to perform the vectorized accumulation along the `i` direction within each stream.
+For every `k` iteration, the compiler drops one memory stream (`k-2`) to load a new one 
+(what was `k+3` at the previous iteration) reusing the other 4 memory streams (each stream 4Kb in size).
+This results in a drastic performance difference (40x of mean wall-clock time) 
+between the two kernels, as confirmed by the performance counters
+in the table below
+
+| Counter | j-i-k | j-k-i |
+| --- | ---: | ---: |
+| cycles (freq) | 627,011,849,372 (4.369 GHz) | 31,314,795,895 (4.359 GHz) |
+| instructions (IPC) | 95,120,738,746 (0.15) | 39,869,904,891 (1.27) |
+| dTLB-load-misses | 11,520,687,034 (41.80%) | 11,565,958 (0.06%) |
+| dTLB-loads | 27,560,951,278 | 20,088,723,548 |
+| L1-dcache-load-misses | 31,381,468,845 | 918,877,798 |
+| LLC-load-misses | 4,511,912,580 | 224,639,776 |
+
+#### std::mdspan zero-cost evaluation
+In this section we compare the performance of `std::mdspan` to a hand-rolled field indexing approach
+for the Z-sweep `j-k-i` kernel. The asm for the two outermost loop differ slightly between the two 
+approaches (not shown), but the innermost loops (the contiguous `i` loops) have essentially the same asm
+
+<table>
+<tr>
+<th>std::mdspan</th>
+<th>Hand rolled</th>
+</tr>
+<tr>
+<td>
+
+	# =>  This Loop Header: Depth=2
+	#       Child Loop BB0_57 Depth 3
+	#         Child Loop BB0_58 Depth 4
+	movq	%rbx, %rcx
+	shlq	$12, %rcx
+	.Ltmp324:
+	.loc	1 264 9 is_stmt 1               # benchmarks/strided_access/main.cpp:264:9 
+	addq	%r15, %rcx
+	movq	%rax, %rdx
+	movl	$2, %esi
+	.Ltmp325:
+	.loc	1 0 9 is_stmt 0                 # :0:9
+	.Ltmp326:
+	.p2align	4
+	.LBB0_57:
+	#     Parent Loop BB0_56 Depth=2
+	# =>    This Loop Header: Depth=3
+	#         Child Loop BB0_58 Depth 4
+	movq	%rsi, %rdi
+	shlq	$22, %rdi
+	incq	%rsi
+	.Ltmp327:
+	movq	%rsi, %r8
+	shlq	$22, %r8
+	vmovd	%r14d, %xmm0
+	vpxor	%xmm1, %xmm1, %xmm1
+	xorl	%r9d, %r9d
+	vpxor	%xmm2, %xmm2, %xmm2
+	vpxor	%xmm3, %xmm3, %xmm3
+	.Ltmp328:
+	.p2align	4
+	.LBB0_58:  
+	#     Parent Loop BB0_56 Depth=2
+	#       Parent Loop BB0_57 Depth=3
+	# =>      This Inner Loop Header: Depth=4
+
+	.loc	1 266 38 is_stmt 1              # benchmarks/strided_access/main.cpp:266:38
+	vpaddd	-16777312(%rdx,%r9,4), %ymm0, %ymm0
+	vpaddd	-16777280(%rdx,%r9,4), %ymm1, %ymm1			# k-2
+	vpaddd	-16777248(%rdx,%r9,4), %ymm2, %ymm2
+	vpaddd	-16777216(%rdx,%r9,4), %ymm3, %ymm3
+	.loc	1 266 58 is_stmt 0              
+	vpaddd	-12583008(%rdx,%r9,4), %ymm0, %ymm0
+	vpaddd	-12582976(%rdx,%r9,4), %ymm1, %ymm1			# k-1
+	vpaddd	-12582944(%rdx,%r9,4), %ymm2, %ymm2
+	vpaddd	-12582912(%rdx,%r9,4), %ymm3, %ymm3
+	.loc	1 266 74                       
+	vpaddd	-8388704(%rdx,%r9,4), %ymm0, %ymm0
+	vpaddd	-8388672(%rdx,%r9,4), %ymm1, %ymm1			# k
+	vpaddd	-8388640(%rdx,%r9,4), %ymm2, %ymm2
+	vpaddd	-8388608(%rdx,%r9,4), %ymm3, %ymm3
+	.loc	1 266 94                        
+	vpaddd	-4194400(%rdx,%r9,4), %ymm0, %ymm0
+	vpaddd	-4194368(%rdx,%r9,4), %ymm1, %ymm1			# k+1
+	vpaddd	-4194336(%rdx,%r9,4), %ymm2, %ymm2
+	vpaddd	-4194304(%rdx,%r9,4), %ymm3, %ymm3
+	.loc	1 266 17                       
+	vpaddd	-96(%rdx,%r9,4), %ymm0, %ymm0
+	vpaddd	-64(%rdx,%r9,4), %ymm1, %ymm1			# k+2
+	vpaddd	-32(%rdx,%r9,4), %ymm2, %ymm2
+	vpaddd	(%rdx,%r9,4), %ymm3, %ymm3
+	addq	$32, %r9
+	cmpq	$992, %r9                       # imm = 0x3E0
+	jne	.LBB0_58
+
+	...
+
+</td>
+<td>
+
+	# =>  This Loop Header: Depth=2
+	#       Child Loop BB0_19 Depth 3
+	#         Child Loop BB0_20 Depth 4
+	leaq	994(%rcx), %rdx
+	leaq	998(%rcx), %rsi
+	leaq	1002(%rcx), %rdi
+	leaq	1006(%rcx), %r8
+	leaq	1010(%rcx), %r9
+	leaq	1014(%rcx), %r10
+	orq	$1018, %rcx                     # imm = 0x3FA
+	movq	%r11, 32(%rsp)                  # 8-byte Spill
+	movl	$2, %r13d
+	.Ltmp120:
+	.loc	1 0 23 is_stmt 0                # :0:23
+	.Ltmp121:
+	.p2align	4
+	.LBB0_19:                               # %iter.check
+	#     Parent Loop BB0_18 Depth=2
+	# =>    This Loop Header: Depth=3
+	#         Child Loop BB0_20 Depth 4
+	.loc	1 284 12 is_stmt 1              # benchmarks/strided_access/main.cpp:284:12
+	movq	%r13, %rbp
+	shlq	$22, %rbp
+	addq	%r12, %rbp
+	vpxor	%xmm0, %xmm0, %xmm0
+	xorl	%eax, %eax
+	vpxor	%xmm1, %xmm1, %xmm1
+	vpxor	%xmm2, %xmm2, %xmm2
+	vpxor	%xmm3, %xmm3, %xmm3
+	.Ltmp122:
+	.loc	1 0 12 is_stmt 0                # :0:12
+	.Ltmp123:
+	.p2align	4
+	#     Parent Loop BB0_18 Depth=2
+	#       Parent Loop BB0_19 Depth=3
+	# =>      This Inner Loop Header: Depth=4
+	.loc	1 285 54 is_stmt 1              # benchmarks/strided_access/main.cpp:285:54
+	vpaddd	-16777312(%r11,%rax,4), %ymm0, %ymm0
+	vpaddd	-16777280(%r11,%rax,4), %ymm1, %ymm1
+	vpaddd	-16777248(%r11,%rax,4), %ymm2, %ymm2
+	vpaddd	-16777216(%r11,%rax,4), %ymm3, %ymm3
+	.loc	1 285 94 is_stmt 0              # benchmarks/strided_access/main.cpp:285:94
+	vpaddd	-12583008(%r11,%rax,4), %ymm0, %ymm0
+	vpaddd	-12582976(%r11,%rax,4), %ymm1, %ymm1
+	vpaddd	-12582944(%r11,%rax,4), %ymm2, %ymm2
+	vpaddd	-12582912(%r11,%rax,4), %ymm3, %ymm3
+	.loc	1 285 130                       # benchmarks/strided_access/main.cpp:285:130
+	vpaddd	-8388704(%r11,%rax,4), %ymm0, %ymm0
+	vpaddd	-8388672(%r11,%rax,4), %ymm1, %ymm1
+	vpaddd	-8388640(%r11,%rax,4), %ymm2, %ymm2
+	vpaddd	-8388608(%r11,%rax,4), %ymm3, %ymm3
+	.loc	1 286 49 is_stmt 1              # benchmarks/strided_access/main.cpp:286:49
+	vpaddd	-4194400(%r11,%rax,4), %ymm0, %ymm0
+	vpaddd	-4194368(%r11,%rax,4), %ymm1, %ymm1
+	vpaddd	-4194336(%r11,%rax,4), %ymm2, %ymm2
+	vpaddd	-4194304(%r11,%rax,4), %ymm3, %ymm3
+	.loc	1 285 13                        # benchmarks/strided_access/main.cpp:285:13
+	vpaddd	-96(%r11,%rax,4), %ymm0, %ymm0
+	vpaddd	-64(%r11,%rax,4), %ymm1, %ymm1
+	vpaddd	-32(%r11,%rax,4), %ymm2, %ymm2
+	vpaddd	(%r11,%rax,4), %ymm3, %ymm3
+	addq	$32, %rax
+	cmpq	$992, %rax                      # imm = 0x3E0
+	jne	.LBB0_20
+
+	...
+	
+</td>
+</tr>
+</table>
+
+so that the performance of the two kernels is essentially identical (within 5ms of mean wall-clock time),
+as confirmed by the performance counters. 
+
+| Counter | std::mdspan | hand-rolled |
+| --- | ---: | ---: |
+| cycles (freq) | 31,314,795,895 (4.359 GHz) | 31,500,320,210 (4.376 GHz) |
+| instructions (IPC) | 39,869,904,891 (1.27) | 39,789,239,304 (1.26) |
+| dTLB-load-misses | 11,565,958 (0.06%) | 11,590,469 (0.06%) |
+| dTLB-loads | 20,088,723,548 | 20,080,317,169 |
+| L1-dcache-load-misses | 918,877,798 | 926,315,701 |
+| LLC-load-misses | 224,639,776 | 241,167,962 |
+
+While we performed the comparison on only one kernel,
+the experiment essentially confirms the zero cost of the `std::mdspan` abstraction, at least for the `layout_left`
+tested in this work.
 
 ### Conclusions
