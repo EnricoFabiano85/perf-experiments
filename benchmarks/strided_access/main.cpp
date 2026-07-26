@@ -1,8 +1,5 @@
-#include <cstddef>
-#include <immintrin.h>
 #include <sys/mman.h>
 #include <stdio.h>
-#include <vector>
 
 import std;
 import perf;
@@ -12,6 +9,19 @@ struct Record
   std::string const kernelName;
   perf::Stats const stats;
 };
+
+void writeToCsv(std::span<Record const> records, auto gridSize, std::string_view filePath)
+{
+  auto outFile = std::ofstream{filePath.data()};
+
+  std::println(outFile, "Kernel, N, mean, std-dev");
+  std::ranges::for_each(records, [&outFile, &gridSize](auto const &r){
+    std::println(outFile,"{},{},{},{}", r.kernelName,
+                                        gridSize,
+                                        r.stats.mean_,
+                                        r.stats.stdDev_);
+  });
+}
 
 enum class PageSize : std::uint8_t {Regular, Huge};
 
@@ -30,7 +40,6 @@ public:
 
     if (_pages == PageSize::Huge) 
     {
-      std::println("IN HERE");
       sizeInBytes = roundUpTo(sizeInBytes) ;
       flags |= MAP_HUGETLB;
     }
@@ -317,10 +326,8 @@ int main(int argc, char *argv[])
 
   }
 
-  std::ranges::for_each(results,[](auto const &r){
-    std::println("{}", r.kernelName);
-    std::println("{}", r.stats);
-  });
+  auto const filePath = "benchmarks/strided_access/results/strided_access_"+std::to_string(Nx)+".csv";
+  writeToCsv(results, Nx, filePath);
 
   return 0;
 }
