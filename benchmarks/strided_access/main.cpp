@@ -2,9 +2,16 @@
 #include <immintrin.h>
 #include <sys/mman.h>
 #include <stdio.h>
+#include <vector>
 
 import std;
 import perf;
+
+struct Record
+{
+  std::string const kernelName;
+  perf::Stats const stats;
+};
 
 enum class PageSize : std::uint8_t {Regular, Huge};
 
@@ -77,6 +84,8 @@ int main(int argc, char *argv[])
   auto const pages = (!args.empty()  && std::string_view(args[0]).starts_with("--Huge")) 
                                       ? PageSize::Huge : PageSize::Regular;
 
+  auto results = std::vector<Record>{};
+
   using DataType = int;
   auto constexpr Nx = 1024;
   auto constexpr Ny = Nx;
@@ -117,79 +126,19 @@ int main(int argc, char *argv[])
 
     auto regionsToFlush = perf::makeFlushRegions(std::span{data});
 
-    auto const s = perf::measure<perf::CachePolicy::Cold>(nIter, [&]{
+    results.emplace_back("X-sweep k-j-i",
+      perf::measure<perf::CachePolicy::Cold>(nIter, [&]{
 
-      decltype(data)::value_type sum = 0;
-      for (std::size_t k = 2; k != mdSpan.extent(2)-2; k++)
-        for (std::size_t j = 2; j != mdSpan.extent(1)-2; j++)
-          for (std::size_t i = 2; i != mdSpan.extent(0)-2; i++)
-            sum += mdSpan[i-2, j, k] + mdSpan[i-1, j, k] + mdSpan[i,j,k] + mdSpan[i+1, j, k] + mdSpan[i+2, j, k];
-
-      return sum;
-    }, assertResult, regionsToFlush);
-
-    std::println("X-sweep k-j-i timing results:");
-    std::println("{}\n\n\n", s);
-  }
-
-  {
-    perf::warmUpCpu();
-
-    auto regionsToFlush = perf::makeFlushRegions(std::span{data});
-
-    auto const s = perf::measure<perf::CachePolicy::Cold>(nIter, [&]{
-
-      decltype(data)::value_type sum = 0;
-      for (std::size_t j = 2; j != mdSpan.extent(1)-2; j++)
-        for (std::size_t k = 2; k != mdSpan.extent(2)-2; k++)
-          for (std::size_t i = 2; i != mdSpan.extent(0)-2; i++)
-            sum += mdSpan[i-2, j, k] + mdSpan[i-1, j, k] + mdSpan[i,j,k] + mdSpan[i+1, j, k] + mdSpan[i+2, j, k];
-
-      return sum;
-    }, assertResult, regionsToFlush);
-
-    std::println("X-sweep j-k-i timing results:");
-    std::println("{}\n\n\n", s);
-  }
-
-  {
-    perf::warmUpCpu();
-
-    auto regionsToFlush = perf::makeFlushRegions(std::span{data});
-
-    auto const s = perf::measure<perf::CachePolicy::Cold>(nIter, [&]{
-
-      decltype(data)::value_type sum = 0;
-      for (std::size_t k = 2; k != mdSpan.extent(2)-2; k++)
-        for (std::size_t i = 2; i != mdSpan.extent(0)-2; i++)
-          for (std::size_t j = 2; j != mdSpan.extent(1)-2; j++)
-            sum += mdSpan[i, j-2, k] + mdSpan[i, j-1, k] + mdSpan[i,j,k] + mdSpan[i, j+1, k] + mdSpan[i, j+2, k];
-
-      return sum;
-    }, assertResult, regionsToFlush);
-
-    std::println("Y-sweep k-i-j timing results:");
-    std::println("{}\n\n\n", s);
-  }
-
-  {
-    perf::warmUpCpu();
-
-    auto regionsToFlush = perf::makeFlushRegions(std::span{data});
-
-    auto const s = perf::measure<perf::CachePolicy::Cold>(nIter, [&]{
-
-      decltype(data)::value_type sum = 0;
-      for (std::size_t i = 2; i != mdSpan.extent(0)-2; i++)
+        decltype(data)::value_type sum = 0;
         for (std::size_t k = 2; k != mdSpan.extent(2)-2; k++)
           for (std::size_t j = 2; j != mdSpan.extent(1)-2; j++)
-            sum += mdSpan[i, j-2, k] + mdSpan[i, j-1, k] + mdSpan[i,j,k] + mdSpan[i, j+1, k] + mdSpan[i, j+2, k];
+            for (std::size_t i = 2; i != mdSpan.extent(0)-2; i++)
+              sum += mdSpan[i-2, j, k] + mdSpan[i-1, j, k] + mdSpan[i,j,k] + mdSpan[i+1, j, k] + mdSpan[i+2, j, k];
 
-      return sum;
-    }, assertResult, regionsToFlush);
+        return sum;
+      }, assertResult, regionsToFlush)
+    );
 
-    std::println("Y-sweep i-k-j timing results:");
-    std::println("{}\n\n\n", s);
   }
 
   {
@@ -197,19 +146,39 @@ int main(int argc, char *argv[])
 
     auto regionsToFlush = perf::makeFlushRegions(std::span{data});
 
-    auto const s = perf::measure<perf::CachePolicy::Cold>(nIter, [&]{
+    results.emplace_back("X-sweep j-k-i", 
+      perf::measure<perf::CachePolicy::Cold>(nIter, [&]{
 
-      decltype(data)::value_type sum = 0;
-      for (std::size_t j = 2; j != mdSpan.extent(1)-2; j++)
+        decltype(data)::value_type sum = 0;
+        for (std::size_t j = 2; j != mdSpan.extent(1)-2; j++)
+          for (std::size_t k = 2; k != mdSpan.extent(2)-2; k++)
+            for (std::size_t i = 2; i != mdSpan.extent(0)-2; i++)
+              sum += mdSpan[i-2, j, k] + mdSpan[i-1, j, k] + mdSpan[i,j,k] + mdSpan[i+1, j, k] + mdSpan[i+2, j, k];
+
+        return sum;
+      }, assertResult, regionsToFlush)
+    );
+
+  }
+
+  {
+    perf::warmUpCpu();
+
+    auto regionsToFlush = perf::makeFlushRegions(std::span{data});
+
+    results.emplace_back("Y-sweep k-i-j",
+      perf::measure<perf::CachePolicy::Cold>(nIter, [&]{
+
+        decltype(data)::value_type sum = 0;
         for (std::size_t k = 2; k != mdSpan.extent(2)-2; k++)
           for (std::size_t i = 2; i != mdSpan.extent(0)-2; i++)
-            sum += mdSpan[i, j-2, k] + mdSpan[i, j-1, k] + mdSpan[i,j,k] + mdSpan[i, j+1, k] + mdSpan[i, j+2, k];
+            for (std::size_t j = 2; j != mdSpan.extent(1)-2; j++)
+              sum += mdSpan[i, j-2, k] + mdSpan[i, j-1, k] + mdSpan[i,j,k] + mdSpan[i, j+1, k] + mdSpan[i, j+2, k];
 
-      return sum;
-    }, assertResult, regionsToFlush);
+        return sum;
+      }, assertResult, regionsToFlush)
+    );
 
-    std::println("Y-sweep j-k-i timing results:");
-    std::println("{}\n\n\n", s);
   }
 
   {
@@ -217,39 +186,19 @@ int main(int argc, char *argv[])
 
     auto regionsToFlush = perf::makeFlushRegions(std::span{data});
 
-    auto const s = perf::measure<perf::CachePolicy::Cold>(nIter, [&]{
+    results.emplace_back("Y-sweep i-k-j",
+      perf::measure<perf::CachePolicy::Cold>(nIter, [&]{
 
-      decltype(data)::value_type sum = 0;
-      for (std::size_t k = 2; k != mdSpan.extent(2)-2; k++)
-        for (std::size_t j = 2; j != mdSpan.extent(1)-2; j++)
-          for (std::size_t i = 2; i != mdSpan.extent(0)-2; i++)
-            sum += mdSpan[i, j-2, k] + mdSpan[i, j-1, k] + mdSpan[i,j,k] + mdSpan[i, j+1, k] + mdSpan[i, j+2, k];
-
-      return sum;
-    }, assertResult, regionsToFlush);
-
-    std::println("Y-sweep k-j-i timing results:");
-    std::println("{}\n\n\n", s);
-  }
-
-  {
-    perf::warmUpCpu();
-
-    auto regionsToFlush = perf::makeFlushRegions(std::span{data});
-
-    auto const s = perf::measure<perf::CachePolicy::Cold>(nIter, [&]{
-
-      decltype(data)::value_type sum = 0;
-      for (std::size_t j = 2; j != mdSpan.extent(1)-2; j++)
+        decltype(data)::value_type sum = 0;
         for (std::size_t i = 2; i != mdSpan.extent(0)-2; i++)
           for (std::size_t k = 2; k != mdSpan.extent(2)-2; k++)
-            sum += mdSpan[i, j, k-2] + mdSpan[i, j, k-1] + mdSpan[i,j,k] + mdSpan[i, j, k+1] + mdSpan[i, j, k+2];
+            for (std::size_t j = 2; j != mdSpan.extent(1)-2; j++)
+              sum += mdSpan[i, j-2, k] + mdSpan[i, j-1, k] + mdSpan[i,j,k] + mdSpan[i, j+1, k] + mdSpan[i, j+2, k];
 
-      return sum;
-    }, assertResult, regionsToFlush);
+        return sum;
+      }, assertResult, regionsToFlush)
+    );
 
-    std::println("Z-sweep j-i-k timing results:");
-    std::println("{}\n\n\n", s);
   }
 
   {
@@ -257,19 +206,79 @@ int main(int argc, char *argv[])
 
     auto regionsToFlush = perf::makeFlushRegions(std::span{data});
 
-    auto const s = perf::measure<perf::CachePolicy::Cold>(nIter, [&]{
+    results.emplace_back("Y-sweep j-k-i",
+      perf::measure<perf::CachePolicy::Cold>(nIter, [&]{
+
+        decltype(data)::value_type sum = 0;
+        for (std::size_t j = 2; j != mdSpan.extent(1)-2; j++)
+          for (std::size_t k = 2; k != mdSpan.extent(2)-2; k++)
+            for (std::size_t i = 2; i != mdSpan.extent(0)-2; i++)
+              sum += mdSpan[i, j-2, k] + mdSpan[i, j-1, k] + mdSpan[i,j,k] + mdSpan[i, j+1, k] + mdSpan[i, j+2, k];
+
+        return sum;
+      }, assertResult, regionsToFlush)
+    );
+
+  }
+
+  {
+    perf::warmUpCpu();
+
+    auto regionsToFlush = perf::makeFlushRegions(std::span{data});
+
+    results.emplace_back("Y-sweep k-j-i", 
+      perf::measure<perf::CachePolicy::Cold>(nIter, [&]{
 
       decltype(data)::value_type sum = 0;
-      for (std::size_t j = 2; j != mdSpan.extent(1)-2; j++)
-        for (std::size_t k = 2; k != mdSpan.extent(2)-2; k++)
+      for (std::size_t k = 2; k != mdSpan.extent(2)-2; k++)
+        for (std::size_t j = 2; j != mdSpan.extent(1)-2; j++)
           for (std::size_t i = 2; i != mdSpan.extent(0)-2; i++)
-            sum += mdSpan[i, j, k-2] + mdSpan[i, j, k-1] + mdSpan[i,j,k] + mdSpan[i, j, k+1] + mdSpan[i, j, k+2];
+            sum += mdSpan[i, j-2, k] + mdSpan[i, j-1, k] + mdSpan[i,j,k] + mdSpan[i, j+1, k] + mdSpan[i, j+2, k];
 
       return sum;
-    }, assertResult, regionsToFlush);
+    }, assertResult, regionsToFlush)
+    );
 
-    std::println("Z-sweep j-k-i timing results:");
-    std::println("{}\n\n\n", s);
+  }
+
+  {
+    perf::warmUpCpu();
+
+    auto regionsToFlush = perf::makeFlushRegions(std::span{data});
+
+    results.emplace_back("Z-sweep j-i-k", 
+      perf::measure<perf::CachePolicy::Cold>(nIter, [&]{
+
+        decltype(data)::value_type sum = 0;
+        for (std::size_t j = 2; j != mdSpan.extent(1)-2; j++)
+          for (std::size_t i = 2; i != mdSpan.extent(0)-2; i++)
+            for (std::size_t k = 2; k != mdSpan.extent(2)-2; k++)
+              sum += mdSpan[i, j, k-2] + mdSpan[i, j, k-1] + mdSpan[i,j,k] + mdSpan[i, j, k+1] + mdSpan[i, j, k+2];
+
+        return sum;
+      }, assertResult, regionsToFlush)
+    );
+
+  }
+
+  {
+    perf::warmUpCpu();
+
+    auto regionsToFlush = perf::makeFlushRegions(std::span{data});
+
+    results.emplace_back("Z-sweep j-k-i",
+      perf::measure<perf::CachePolicy::Cold>(nIter, [&]{
+
+        decltype(data)::value_type sum = 0;
+        for (std::size_t j = 2; j != mdSpan.extent(1)-2; j++)
+          for (std::size_t k = 2; k != mdSpan.extent(2)-2; k++)
+            for (std::size_t i = 2; i != mdSpan.extent(0)-2; i++)
+              sum += mdSpan[i, j, k-2] + mdSpan[i, j, k-1] + mdSpan[i,j,k] + mdSpan[i, j, k+1] + mdSpan[i, j, k+2];
+
+        return sum;
+      }, assertResult, regionsToFlush)
+    );
+
   }
 
   {
@@ -288,25 +297,30 @@ int main(int argc, char *argv[])
       return sum;
     };
 
-    auto const s = perf::measure<perf::CachePolicy::Cold>(nIter, [&]{
+    results.emplace_back("Z-sweep pencil",
+      perf::measure<perf::CachePolicy::Cold>(nIter, [&]{
 
-      decltype(data)::value_type sum = 0;
+        decltype(data)::value_type sum = 0;
 
-      for (std::size_t j = 2; j != Ny-2; j++)
-        for (std::size_t k = 2; k != Nz-2; k++)
-        {
-          auto const base = j*Ny;
-          auto const stride = Nx*Ny;
-          sum += pencil(span, base, k, stride, Nx);
-          
-        }
+        for (std::size_t j = 2; j != Ny-2; j++)
+          for (std::size_t k = 2; k != Nz-2; k++)
+          {
+            auto const base = j*Ny;
+            auto const stride = Nx*Ny;
+            sum += pencil(span, base, k, stride, Nx);
+            
+          }
 
-      return sum;
-    }, assertResult, regionsToFlush);
+        return sum;
+      }, assertResult, regionsToFlush)
+    );
 
-    std::println("Z-sweep pencil timing results:");
-    std::println("{}\n\n\n", s);
   }
+
+  std::ranges::for_each(results,[](auto const &r){
+    std::println("{}", r.kernelName);
+    std::println("{}", r.stats);
+  });
 
   return 0;
 }
