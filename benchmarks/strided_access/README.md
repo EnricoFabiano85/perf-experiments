@@ -109,7 +109,14 @@ with 64 bytes cache line (getconf LEVEL1_DCACHE_LINESIZE).
 
 The code is compiled with optimization level 3 (O3) and with -march=native in order to enable AVX512 
 instructions.
-All the kernels are run by pinning to a thread (taskset -c 2 ./strided_access) in performance mode.
+All the kernels are run by pinning to a thread (`taskset -c 2 ./strided_access`) in performance mode
+(`sudo cpupower frequency-set -g performance`). When reported, the performance counters are collected
+by running `perf stat` on the `strided_access` executable as
+`sudo taskset -c 2 perf stat -e dTLB-load-misses,dTLB-loads,L1-dcache-load-misses,LLC-load-misses,cycles,instructions,task-clock ./build/benchmarks/strided_access/strided_access`.
+As a consequence the `perf stat` measures the performance of the `perf` library in
+addition to the performance of the measured kernels. Hence, while the performance counters are
+directionally correct, there can be some discrepancies between 
+the counters and the measured wall-clock time. Future work will address these discrepancies.
 Unless otherwise specified, the grid size is Nx=Ny=Nz=1024.
 
 
@@ -375,8 +382,8 @@ as reported in the performance counters below (`perf stat -e dTLB-load-misses,dT
 | LLC-load-misses | 838,097,720 | 11,493,452,229 |
 
 As mentioned, the inner-loop asm of these two kernels is identical (20 vpgatherqd/kxnorw each). The outer
-loops differ slightly with some register spilling in one case, so that the instructions per cycle differ by 
-approximately 0.6%. However, while the `k-i-j` has only 0.06% page misses, the `i-k-j` loop has ~43% page misses
+loops differ slightly with some register spilling in one case, so that the instruction count differs
+approximately by 0.6%. However, while the `k-i-j` has only 0.06% page misses, the `i-k-j` loop has ~43% page misses
 because of the 4MB-stride `k` loop, so that the latter kernel has significantly degraded performance (~3x)
 despite slightly better L1 cache misses.
 
@@ -741,4 +748,27 @@ While we performed the comparison on only one kernel,
 the experiment essentially confirms the zero cost of the `std::mdspan` abstraction, at least for the `layout_left`
 tested in this work.
 
+### Grid size sensitivity
+In this section we investigate the performance of the fastest loop ordering for each sweep direction
+ (as determined from the asm listings above) as a function of grid size. 
+![Kernel mean time as a function of grid size for each sweep direction](results/grid_sensitivity.png)
+Because at low grid sizes (N=16-128) the grids fits almost entirely in L1-L3 cache, at the time
+of this writing the `perf` librariy does not have enough temporal resolution 
+to accurately measure the performance of the different kernels. For bigger grids (N > 256) the
+perforamance of the kernels is linear in the number of grid points. The Z sweep has the worse performance 
+of the 3 kernels. This is because every time a memory stream is phased out, the next one has to be
+fetched from memory that is 4 Mb away. The X and Y sweeps initially have almost identical performance
+but the perforance of the X sweep degrades for bigger grids so that at the biggest grid size tested 
+(N = 1024) the Y sweep is actually faster than the the X sweep.
+
 ### Conclusions
+In this work we investigated the performance of different computational kernels representative of
+directionally-split, 5-point WENO schemes. By studying the asm code of the different kernels, we
+demonstrated how their performance heavily depends on their memory access pattern 
+(cache, TLB reuse). However, for memory efficient loops, vectorization and instruction overhead 
+are again relevant.
+Future work will focus on improving
+the performance of the `X-sweep k-j-i` scheme by performing 5 unaligned loads at every `i` iteration,
+on exploring tiled memory-access approaches and 
+on improving the `perf` library via increased temporal resolution and direct gethering of 
+the performance counters.

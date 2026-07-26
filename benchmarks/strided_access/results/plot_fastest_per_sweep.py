@@ -78,13 +78,13 @@ def main():
         ax.errorbar(Ns, means, yerr=stds, marker="o", capsize=3,
                     label=f"{sweep} ({REPRESENTATIVE[sweep]})")
 
-    ax.set_xlabel("N  (grid = N x N x N)")
-    ax.set_ylabel("mean time [ms]")
+    ax.set_xlabel("Grid size (N x N x N)")
+    ax.set_ylabel("Mean time [ms]")
     ax.set_xscale("log", base=2)
     ax.set_yscale("log")
     ax.grid(True, which="both", alpha=0.3)
-    ax.legend(title="fastest loop / sweep")
-    ax.set_title("Fastest loop vs grid size")
+    ax.legend()
+    ax.set_title("Kernel wall-clock time vs grid size")
     fig.tight_layout()
     out = os.path.join(HERE, "grid_sensitivity.png")
     fig.savefig(out, dpi=150)
