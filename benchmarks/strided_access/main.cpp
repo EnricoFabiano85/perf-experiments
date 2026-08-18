@@ -74,16 +74,16 @@ public:
 
 private:
 
+  static constexpr std::size_t hugePageSize{2uz*1024*1024}; // bytes (2Mb)
+
   constexpr std::size_t roundUpTo(std::size_t n)
   {
-    auto constexpr hugePageSize{2uz*1024*1024};
     return (n + hugePageSize - 1) / hugePageSize * hugePageSize;
   }
 
   std::size_t const _allocSize;
   PageSize const _pages;
   T *_data;
-  std::size_t const hugePageSize{2uz*1024*1024};
 };
 
 int main(int argc, char *argv[])
