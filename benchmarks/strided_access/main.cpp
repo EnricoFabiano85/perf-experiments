@@ -14,6 +14,9 @@ void writeToCsv(std::span<Record const> records, auto gridSize, std::string_view
 {
   auto outFile = std::ofstream{filePath.data()};
 
+  if (!outFile.is_open())
+    throw std::runtime_error{std::format("writeToCsv: could not open '{}' for writing", filePath)};
+
   std::println(outFile, "Kernel, N, mean, std-dev");
   std::ranges::for_each(records, [&outFile, &gridSize](auto const &r){
     std::println(outFile,"{},{},{},{}", r.kernelName,
@@ -314,7 +317,7 @@ int main(int argc, char *argv[])
         for (std::size_t j = 2; j != Ny-2; j++)
           for (std::size_t k = 2; k != Nz-2; k++)
           {
-            auto const base = j*Ny;
+            auto const base = j*Nx;
             auto const stride = Nx*Ny;
             sum += pencil(span, base, k, stride, Nx);
             
