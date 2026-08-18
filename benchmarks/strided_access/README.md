@@ -107,16 +107,31 @@ L3 cache:                                8 MiB (1 instance)
 
 with 64 bytes cache line (getconf LEVEL1_DCACHE_LINESIZE).
 
-The code is compiled with optimization level 3 (O3) and with -march=native in order to enable AVX512 
-instructions.
-All the kernels are run by pinning to a thread (`taskset -c 2 ./strided_access`) in performance mode
-(`sudo cpupower frequency-set -g performance`). When reported, the performance counters are collected
-by running `perf stat` on the `strided_access` executable as
-`sudo taskset -c 2 perf stat -e dTLB-load-misses,dTLB-loads,L1-dcache-load-misses,LLC-load-misses,cycles,instructions,task-clock ./build/benchmarks/strided_access/strided_access`.
+The code is compiled with optimization level 3 (`O3`) and with `-march=native`
+ in order to enable AVX512 instructions om the i5 processor.
+All the kernels are run by pinning to a thread in performance mode
+```
+sudo cpupower frequency-set -g performance
+taskset -c 2 ./strided_access
+```
+The mmap buffer can be backed by huge pages via `--Huge` at run time after reserving the pool
+(N=1024 needs 4 GiB → 2048 pages)
+```
+sudo sysctl vm.nr_hugepages=2048     # verify HugePages_Total in /proc/meminfo
+taskset -c 2 ./strided_access --Huge
+sudo sysctl vm.nr_hugepages=0        # release afterward
+```
+When reported, the performance counters are collected
+by running `perf stat` on the `strided_access` executable 
+```
+sudo taskset -c 2 perf stat -e dTLB-load-misses,dTLB-loads,L1-dcache-load-misses,LLC-load-misses,cycles,instructions,task-clock \
+	./build/benchmarks/strided_access/strided_access
+```
 As a consequence the `perf stat` measures the performance of the `perf` library in
 addition to the performance of the measured kernels. Hence, while the performance counters are
 directionally correct, there can be some discrepancies between 
 the counters and the measured wall-clock time. Future work will address these discrepancies.
+
 Unless otherwise specified, the grid size is Nx=Ny=Nz=1024.
 
 
@@ -383,7 +398,7 @@ as reported in the performance counters below (`perf stat -e dTLB-load-misses,dT
 
 As mentioned, the inner-loop asm of these two kernels is identical (20 vpgatherqd/kxnorw each). The outer
 loops differ slightly with some register spilling in one case, so that the instruction count differs
-approximately by 0.6%. However, while the `k-i-j` has only 0.06% page misses, the `i-k-j` loop has ~43% page misses
+approximately by 0.6%. However, while the `k-i-j` has only 0.05% page misses, the `i-k-j` loop has ~43% page misses
 because of the 4MB-stride `k` loop, so that the latter kernel has significantly degraded performance (~3x)
 despite slightly better L1 cache misses.
 
@@ -752,14 +767,17 @@ tested in this work.
 In this section we investigate the performance of the fastest loop ordering for each sweep direction
  (as determined from the asm listings above) as a function of grid size. 
 ![Kernel mean time as a function of grid size for each sweep direction](results/grid_sensitivity.png)
-Because at low grid sizes (N=16-128) the grids fits almost entirely in L1-L3 cache, at the time
+Because at low grid sizes (N<=256) the grids fits almost entirely in L1-L3 cache, at the time
 of this writing the `perf` librariy does not have enough temporal resolution 
 to accurately measure the performance of the different kernels. For bigger grids (N > 256) the
 perforamance of the kernels is linear in the number of grid points. The Z sweep has the worse performance 
 of the 3 kernels. This is because every time a memory stream is phased out, the next one has to be
 fetched from memory that is 4 Mb away. The X and Y sweeps initially have almost identical performance
-but the perforance of the X sweep degrades for bigger grids so that at the biggest grid size tested 
-(N = 1024) the Y sweep is actually faster than the the X sweep.
+but the perforance of the X sweep degrades slightly for bigger grids so that at the biggest 
+grid size tested 
+(N = 1024) the Y sweep is actually faster than the X sweep. Repeating the grid sensitivity study
+with huge-pages-backed memory (`--Huge`) did not significantly change ths result, confirming that 
+the X-vs-Y comparison is not TLB-bound.
 
 ### Conclusions
 In this work we investigated the performance of different computational kernels representative of
