@@ -424,7 +424,7 @@ away resulting in little to none cache reuse.
 **X-sweep/Y-sweep k-j-i kernel comparison**
 Here we compare the performance of the `k-j-i` kernel for both the X and the Y sweep. Regardless of the resolution
 the `k-j-i` kernel for the X-sweep is expected to be the fastest kernel, however measurements show that 
-the same kernel for the Y-sweep is actually faster by about 12% (~15 standard deviations). 
+the same kernel for the Y-sweep is actually faster by about 14% (over 10 standard deviations). 
 
 | Counter | X-sweep | Y-sweep |
 | --- | ---: | ---: |
