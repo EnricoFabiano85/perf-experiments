@@ -1,0 +1,10 @@
+Kernel, N, mean, std-dev
+X-sweep k-j-i,256,4,0
+X-sweep j-k-i,256,6,0
+Y-sweep k-i-j,256,19,0
+Y-sweep i-k-j,256,140.2,1.16619037896906
+Y-sweep j-k-i,256,9.2,0.4
+Y-sweep k-j-i,256,4,0
+Z-sweep j-i-k,256,31.4,0.6633249580710799
+Z-sweep j-k-i,256,5,0
+Z-sweep pencil,256,5.1,0.3
